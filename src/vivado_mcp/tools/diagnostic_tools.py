@@ -1,0 +1,135 @@
+"""诊断工具：get_critical_warnings / verify_io_placement。
+
+自动从 Vivado 日志中提取 CRITICAL WARNING，
+对比 XDC 约束与实际 IO 布局，帮助快速定位引脚映射等问题。
+"""
+
+from mcp.server.fastmcp import Context
+
+from vivado_mcp.analysis.io_parser import parse_report_io
+from vivado_mcp.analysis.io_verifier import format_io_verification, verify_io_placement
+from vivado_mcp.analysis.warning_parser import (
+    WarningReport,
+    format_warning_report,
+    group_warnings,
+    parse_critical_warnings,
+    parse_diag_counts,
+)
+from vivado_mcp.analysis.xdc_parser import parse_xdc_constraints
+from vivado_mcp.server import _NO_SESSION, _require_session, mcp
+from vivado_mcp.tcl_scripts import (
+    COUNT_WARNINGS,
+    EXTRACT_CRITICAL_WARNINGS,
+    EXTRACT_XDC_PACKAGE_PINS,
+)
+from vivado_mcp.vivado.tcl_utils import validate_identifier
+
+
+@mcp.tool()
+async def get_critical_warnings(
+    run_name: str = "impl_1",
+    session_id: str = "default",
+    ctx: Context = None,
+) -> str:
+    """提取并分类 CRITICAL WARNING。
+
+    解析指定 run 的 runme.log，按 warning ID 聚合分类，返回中文诊断报告。
+    包含已知 warning 的分类标签和修复建议。
+
+    Args:
+        run_name: run 名称（如 "synth_1"、"impl_1"），默认 "impl_1"。
+        session_id: 目标会话 ID。
+    """
+    try:
+        run_name = validate_identifier(run_name, "run_name")
+    except ValueError as e:
+        return f"[ERROR] {e}"
+
+    session = _require_session(ctx, session_id)
+    if not session:
+        return _NO_SESSION.format(sid=session_id)
+
+    # 第一步：获取计数
+    try:
+        count_result = await session.execute(
+            COUNT_WARNINGS.format(run_name=run_name), timeout=30.0
+        )
+        errors, cw_count, w_count = parse_diag_counts(count_result.output)
+    except Exception as e:
+        return f"[ERROR] 读取警告计数失败: {e}"
+
+    if cw_count == 0:
+        return (
+            f"诊断概览: errors={errors}, critical_warnings=0, warnings={w_count}\n"
+            "未发现 CRITICAL WARNING。"
+        )
+
+    if cw_count == -1:
+        return "[ERROR] 未找到 runme.log，请确认 run 已执行过。"
+
+    # 第二步：提取 CRITICAL WARNING 详情
+    try:
+        cw_result = await session.execute(
+            EXTRACT_CRITICAL_WARNINGS.format(run_name=run_name), timeout=60.0
+        )
+        cw_list = parse_critical_warnings(cw_result.output)
+        groups = group_warnings(cw_list)
+    except Exception as e:
+        return f"[ERROR] 提取 CRITICAL WARNING 详情失败: {e}"
+
+    # 第三步：格式化报告
+    report = WarningReport(
+        errors=errors,
+        critical_warnings=cw_count,
+        warnings=w_count,
+        groups=groups,
+    )
+    return format_warning_report(report)
+
+
+@mcp.tool()
+async def verify_io_placement_tool(
+    session_id: str = "default",
+    ctx: Context = None,
+) -> str:
+    """验证 IO 引脚分配：比对 XDC 约束与实际布局。
+
+    自动读取项目 XDC 文件中的 PACKAGE_PIN 约束，
+    与 report_io 的实际分配结果对比，发现 GT 引脚交叉等严重错误。
+
+    GT 端口不匹配标记为 CRITICAL，GPIO 端口标记为 WARNING。
+
+    Args:
+        session_id: 目标会话 ID。
+    """
+    session = _require_session(ctx, session_id)
+    if not session:
+        return _NO_SESSION.format(sid=session_id)
+
+    # 第一步：提取 XDC 约束
+    try:
+        xdc_result = await session.execute(
+            EXTRACT_XDC_PACKAGE_PINS, timeout=30.0
+        )
+        xdc_constraints = parse_xdc_constraints(xdc_result.output)
+    except Exception as e:
+        return f"[ERROR] 读取 XDC 约束失败: {e}"
+
+    if not xdc_constraints:
+        return "未找到 PACKAGE_PIN 约束。请确认项目已添加 XDC 约束文件。"
+
+    # 第二步：获取 report_io
+    try:
+        io_result = await session.execute(
+            "report_io -return_string", timeout=60.0
+        )
+        io_report = parse_report_io(io_result.output)
+    except Exception as e:
+        return f"[ERROR] 获取 IO 报告失败: {e}"
+
+    if not io_report.ports:
+        return "report_io 未返回任何端口信息。请确认实现已完成。"
+
+    # 第三步：对比验证
+    verification = verify_io_placement(xdc_constraints, io_report)
+    return format_io_verification(verification)

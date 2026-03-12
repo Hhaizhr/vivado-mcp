@@ -1,0 +1,26 @@
+Report IO
+
++-------------------------------+-------------+------------------+-----------+----------+------+-------+
+| Port Name                     | Package Pin | Site             | Direction | IO Std   | Bank | Fixed |
++-------------------------------+-------------+------------------+-----------+----------+------+-------+
+| pcie_7x_mgt_rtl_0_rxp[0]     | M6          | MGTXRXP3_116     | INPUT     |          | 116  | TRUE  |
+| pcie_7x_mgt_rtl_0_rxp[1]     | L4          | MGTXRXP2_116     | INPUT     |          | 116  | TRUE  |
+| pcie_7x_mgt_rtl_0_rxp[2]     | K6          | MGTXRXP1_116     | INPUT     |          | 116  | TRUE  |
+| pcie_7x_mgt_rtl_0_rxp[3]     | J4          | MGTXRXP0_116     | INPUT     |          | 116  | TRUE  |
+| pcie_7x_mgt_rtl_0_rxp[4]     | H6          | MGTXRXP3_115     | INPUT     |          | 115  | TRUE  |
+| pcie_7x_mgt_rtl_0_rxp[5]     | G4          | MGTXRXP2_115     | INPUT     |          | 115  | TRUE  |
+| pcie_7x_mgt_rtl_0_rxp[6]     | F6          | MGTXRXP1_115     | INPUT     |          | 115  | TRUE  |
+| pcie_7x_mgt_rtl_0_rxp[7]     | E4          | MGTXRXP0_115     | INPUT     |          | 115  | TRUE  |
+| pcie_7x_mgt_rtl_0_txp[0]     | M5          | MGTXTXP3_116     | OUTPUT    |          | 116  | TRUE  |
+| pcie_7x_mgt_rtl_0_txp[1]     | L3          | MGTXTXP2_116     | OUTPUT    |          | 116  | TRUE  |
+| pcie_7x_mgt_rtl_0_txp[2]     | K5          | MGTXTXP1_116     | OUTPUT    |          | 116  | TRUE  |
+| pcie_7x_mgt_rtl_0_txp[3]     | J3          | MGTXTXP0_116     | OUTPUT    |          | 116  | TRUE  |
+| pcie_7x_mgt_rtl_0_txp[4]     | H5          | MGTXTXP3_115     | OUTPUT    |          | 115  | TRUE  |
+| pcie_7x_mgt_rtl_0_txp[5]     | G3          | MGTXTXP2_115     | OUTPUT    |          | 115  | TRUE  |
+| pcie_7x_mgt_rtl_0_txp[6]     | F5          | MGTXTXP1_115     | OUTPUT    |          | 115  | TRUE  |
+| pcie_7x_mgt_rtl_0_txp[7]     | E3          | MGTXTXP0_115     | OUTPUT    |          | 115  | TRUE  |
+| sys_clk_p                     | AB8         | IOB_X0Y158       | INPUT     | LVDS_25  | 33   | TRUE  |
+| sys_clk_n                     | AC8         | IOB_X0Y159       | INPUT     | LVDS_25  | 33   | TRUE  |
+| xdma_rst_n                    | Y25         | IOB_X0Y75        | INPUT     | LVCMOS25 | 13   | TRUE  |
+| led[0]                        | AA2         | IOB_X1Y2         | OUTPUT    | LVCMOS33 | 34   | TRUE  |
++-------------------------------+-------------+------------------+-----------+----------+------+-------+

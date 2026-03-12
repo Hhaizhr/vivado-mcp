@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+.venv/
+venv/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Ruff
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vivado 生成文件
+*.jou
+*.log
+*.bit
+*.bin
+*.ltx
+*.mcs
+*.prm
+*.xpr.bak
+.Xil/
+*.runs/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.sim/
+*.srcs/
+vivado_*.backup.jou
+vivado_*.backup.log
+webtalk*.jou
+webtalk*.log
+usage_statistics_webtalk.*
+
+# Claude Code
+.claude/
+
+# 内部文档
+.spec-workflow/
+vivado_mcp_requirements.md

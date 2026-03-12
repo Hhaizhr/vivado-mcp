@@ -1,0 +1,46 @@
+[project]
+name = "vivado-mcp"
+version = "0.1.0"
+description = "Vivado MCP Server — AI 驱动的 FPGA 开发助手，自动诊断 CRITICAL WARNING 并给出修复建议"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "NJ" }]
+keywords = ["mcp", "vivado", "fpga", "eda", "tcl", "xilinx"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = ["mcp>=1.0.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/mapleleavessssssss-wq/vivado-mcp"
+Repository = "https://github.com/mapleleavessssssss-wq/vivado-mcp"
+Issues = "https://github.com/mapleleavessssssss-wq/vivado-mcp/issues"
+
+[project.scripts]
+vivado-mcp = "vivado_mcp.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

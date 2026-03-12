@@ -1,0 +1,22 @@
+INFO: [Vivado 12-584] Generating block diagram for IP instance pcie2_ip_i
+INFO: [Vivado 12-1023] Processing constraints...
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_rxp[0] to package_pin AA4, because the MGTXRXP0_115 is occupied by port pcie_7x_mgt_rtl_0_rxn[7]. The conflicting port was constrained by [board_pins.xdc:15].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_rxp[1] to package_pin AB6, because the MGTXRXP1_115 is occupied by port pcie_7x_mgt_rtl_0_rxn[6]. The conflicting port was constrained by [board_pins.xdc:16].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_rxp[2] to package_pin AC4, because the MGTXRXP2_115 is occupied by port pcie_7x_mgt_rtl_0_rxn[5]. The conflicting port was constrained by [board_pins.xdc:17].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_rxp[3] to package_pin AD6, because the MGTXRXP3_115 is occupied by port pcie_7x_mgt_rtl_0_rxn[4]. The conflicting port was constrained by [board_pins.xdc:18].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_rxp[4] to package_pin AE4, because the MGTXRXP0_116 is occupied by port pcie_7x_mgt_rtl_0_rxn[3]. The conflicting port was constrained by [board_pins.xdc:19].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_rxp[5] to package_pin AF6, because the MGTXRXP1_116 is occupied by port pcie_7x_mgt_rtl_0_rxn[2]. The conflicting port was constrained by [board_pins.xdc:20].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_rxp[6] to package_pin AG4, because the MGTXRXP2_116 is occupied by port pcie_7x_mgt_rtl_0_rxn[1]. The conflicting port was constrained by [board_pins.xdc:21].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_rxp[7] to package_pin AH6, because the MGTXRXP3_116 is occupied by port pcie_7x_mgt_rtl_0_rxn[0]. The conflicting port was constrained by [board_pins.xdc:22].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_txp[0] to package_pin AA3, because the MGTXTXP0_115 is occupied by port pcie_7x_mgt_rtl_0_txn[7]. The conflicting port was constrained by [board_pins.xdc:23].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_txp[1] to package_pin AB5, because the MGTXTXP1_115 is occupied by port pcie_7x_mgt_rtl_0_txn[6]. The conflicting port was constrained by [board_pins.xdc:24].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_txp[2] to package_pin AC3, because the MGTXTXP2_115 is occupied by port pcie_7x_mgt_rtl_0_txn[5]. The conflicting port was constrained by [board_pins.xdc:25].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_txp[3] to package_pin AD5, because the MGTXTXP3_115 is occupied by port pcie_7x_mgt_rtl_0_txn[4]. The conflicting port was constrained by [board_pins.xdc:26].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_txp[4] to package_pin AE3, because the MGTXTXP0_116 is occupied by port pcie_7x_mgt_rtl_0_txn[3]. The conflicting port was constrained by [board_pins.xdc:27].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_txp[5] to package_pin AF5, because the MGTXTXP1_116 is occupied by port pcie_7x_mgt_rtl_0_txn[2]. The conflicting port was constrained by [board_pins.xdc:28].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_txp[6] to package_pin AG3, because the MGTXTXP2_116 is occupied by port pcie_7x_mgt_rtl_0_txn[1]. The conflicting port was constrained by [board_pins.xdc:29].
+CRITICAL WARNING: [Vivado 12-1411] Cannot set LOC property of port pcie_7x_mgt_rtl_0_txp[7] to package_pin AH5, because the MGTXTXP3_116 is occupied by port pcie_7x_mgt_rtl_0_txn[0]. The conflicting port was constrained by [board_pins.xdc:30].
+WARNING: [Vivado 12-3482] Writing placer database...
+WARNING: [Vivado 12-3482] Design optimization...
+WARNING: [Timing 38-3] The design does not meet timing requirements.
+INFO: [Vivado 12-1024] Implementation complete.
