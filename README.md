@@ -23,7 +23,7 @@
 ### 1. 安装
 
 ```bash
-pip install git+https://github.com/mapleleavessssssss-wq/vivado-mcp.git
+pip install vivado-mcp
 ```
 
 <details>
