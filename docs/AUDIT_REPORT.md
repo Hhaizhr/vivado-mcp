@@ -211,18 +211,55 @@ SynthPilot Server: Ready on port 9999
 
 ---
 
-## 五、下一步（请你选）
+## 五、修复状态（2026-04-17 — 0.2.0 已全修）
 
-我把 bug 按优先级列好了，你告诉我哪些要立刻修、哪些先不管：
+所有审计 bug 已修复并在 216 单元测试 + 20 步 subprocess 端到端 + 6 项 GUI 模式实机测试中回归通过。
 
-- [ ] **B1 sentinel 协议错位**（一切之根，强烈建议立刻修）
-- [ ] **B2 `get_timing_report` 假阳性**（危险，建议立刻修）
-- [ ] **B3 XDC `-dict` 语法解析**（影响 `verify_io_placement` 实用性）
-- [ ] **B4 综合后自动 open_run**（改善 AI 体验）
-- [ ] **B5 stderr 采集**（改善错误可读性）
-- [ ] **B6 `get_io_report` 端口解析**（B1 修完后先复测再决定）
-- [ ] **工具瘦身**：删除标记为"可删"的 8 个（create_project / open_project / close_project / add_files / vivado_help / get_status / report / ...）
-- [ ] **文档更新**（workflow prompt、README）
+- [x] **B1 sentinel 协议错位** — `tcl_utils.py` 把 `VMCP_ERR` 移到 sentinel 之前
+- [x] **B2 `get_timing_report` 假阳性** — `report_tools.py` 加 `is_error` 判断
+- [x] **B3 XDC `-dict` 语法解析** — `xdc_parser.py` 新增 `parse_xdc_file` 支持两种语法
+- [x] **B4 综合后自动 open_run** — `flow_tools.py` `_launch_and_wait` 尾部追加 `open_run`
+- [x] **B5 stderr 采集** — `session.py` 加 `_drain_stderr` 异步任务
+- [x] **B6 `get_io_report` 端口解析** — `io_parser.py` 扩展支持 Vivado 2019.1 的 Pin 版表格
+- [x] **工具瘦身**：删了 8 个 facade，工具数 21 → 15
+- [x] **文档更新**：README / CHANGELOG / MIGRATION_0.1_to_0.2.md
+
+---
+
+## 六、实施后追加发现（GUI 实机验证时暴露）
+
+GUI 模式走 TCP 通信，协议与 subprocess 的 stdio 哨兵协议完全不同，实机跑起来后又炸出两个问题——都已修复。
+
+### 🔴 B8 [P0 GUI] TCP 握手验证缺失 → 误连其他产品的 server
+
+**现象**：MCP spawn Vivado GUI 后按端口池顺序尝试连接；但**用户机器上残留 SynthPilot 的 Vivado_init.tcl 注入仍占用 9999 端口**——新 Vivado 启动后 SynthPilot 先占住 9999，我们的 server 占 9998（或被端口首选值指定）。Python 端轮询 `[9998, 9999, ...]`，若 9998 还没就绪（GUI 启动中）而 9999 已经被 SynthPilot 的 server listening，Python 就**连上 SynthPilot 的 server 还以为是自己的**。后续发二进制 length-prefix 请求时 SynthPilot 按行读命令，双方协议完全不兼容，读响应会拿到 `ERRO` 当 uint32 header（= 1163017551 字节），试图读那么多 payload 要么阻塞要么爆。
+
+**修复**（`gui_session.py`）：连上后立即发 `puts VMCP_HANDSHAKE_ACK` 探测，期望收到 vivado-mcp 格式的 length-prefix + JSON 响应；超时 3 秒或 JSON 解析失败就关闭连接跳到下一个端口。
+
+### 🔴 B9 [P0 GUI] TCP 模式 `puts` 输出丢失 + 返回值重复
+
+**两个子问题，同一次修复：**
+
+**9.a 输出丢失**：`puts X` 在 GUI/TCP 模式下写到 Vivado 主 stdout（Tcl Console），**客户端拿不到**。影响所有依赖 `puts VMCP_XXX` 多行结构化输出的内部命令：
+- `_launch_and_wait` 的 `puts "VMCP_POLL|..."` 轮询
+- `COUNT_WARNINGS` 的 `puts "VMCP_DIAG:..."`
+- `EXTRACT_CRITICAL_WARNINGS` 的逐行 `puts "VMCP_CW:..."`
+- `CHECK_PRE_BITSTREAM` / `INSPECT_IP_PARAMS` 等
+
+不修 GUI 模式下 `run_synthesis` 会直接卡死（poll 永远拿不到状态）。
+
+**9.b 重复**：拦截用的 `captured_puts` proc 用 `append` 累积到 `captured_buf`。Tcl 的 `append` **返回新字符串值**（非空），这个值被当成 puts 的 return value 返回。导致合并时 `captured_buf + $ret` 出现两份同样内容。
+
+**修复**（`scripts/vivado_mcp_server.tcl`）：
+- 用 `rename ::puts ::__orig_puts` + `rename ::vmcp::captured_puts ::puts` 临时拦截
+- 捕获到 `::vmcp::captured_buf`（**必须用绝对路径，不能 `variable captured_buf`**——因为 proc 被 rename 到 global namespace 后 `variable` resolve 到 `::captured_buf` 而不是 `::vmcp::captured_buf`）
+- `captured_puts` 末尾显式 `return ""`，模仿原生 puts 语义
+
+subprocess 模式走 sentinel 协议不受影响（stdio 自然把 puts 抓到 stdout）。
+
+### 实机验证
+
+6 项 GUI 测试：version / pwd / 错命令 / 协议健壮性 / 多行 puts 捕获 / safe_tcl 含特殊字符 —— 全通过。
 
 ---
 
