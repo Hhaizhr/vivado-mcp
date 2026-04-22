@@ -1,14 +1,3 @@
-"""入口模块：支持子命令 + MCP server 启动。
-
-用法：
-    python -m vivado_mcp              # 启动 MCP server（stdio，供 AI 工具调用）
-    python -m vivado_mcp serve         # 同上，显式
-    python -m vivado_mcp install       # 注入 Vivado_init.tcl
-    python -m vivado_mcp uninstall     # 从 Vivado_init.tcl 移除
-    python -m vivado_mcp version       # 显示版本
-    vivado-mcp install --port 9998     # 使用自定义端口
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -20,52 +9,42 @@ from vivado_mcp import __version__
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="vivado-mcp",
-        description="Vivado MCP Server — AI 驱动的 FPGA 开发助手。",
+        description="Vivado MCP Server",
     )
     sub = parser.add_subparsers(dest="cmd", metavar="COMMAND")
 
-    # serve (默认)
-    sub.add_parser(
-        "serve",
-        help="启动 MCP server（stdio 传输，供 Claude Code 等 AI 工具调用）。",
-    )
+    sub.add_parser("serve", help="Start the MCP server over stdio.")
 
-    # install
     p_install = sub.add_parser(
         "install",
-        help="注入 Vivado_init.tcl，让 Vivado GUI 启动时自动开启 TCP server。",
+        help="Inject Vivado_init.tcl so Vivado GUI starts the localhost-only TCP bridge.",
+    )
+    p_install.add_argument("vivado_path", nargs="?", help="Optional Vivado executable path.")
+    p_install.add_argument("--port", type=int, default=9999, help="Preferred TCP port.")
+    p_install.add_argument(
+        "--auth-token",
+        default="",
+        help="Optional auth token. If omitted, vivado-mcp reuses or generates one and stores it locally.",
     )
     p_install.add_argument(
-        "vivado_path",
-        nargs="?",
-        help="Vivado 可执行文件路径（可选，留空则自动检测）。",
-    )
-    p_install.add_argument(
-        "--port",
-        type=int,
-        default=9999,
-        help="监听端口首选值（默认 9999，端口池 9999-10003）。",
+        "--dev",
+        action="store_true",
+        help="Source the Tcl bridge directly from the working tree instead of installing a stable copy.",
     )
 
-    # uninstall
     p_uninstall = sub.add_parser(
         "uninstall",
-        help="从 Vivado_init.tcl 移除 vivado-mcp 注入。",
+        help="Remove vivado-mcp injection from Vivado_init.tcl.",
     )
-    p_uninstall.add_argument(
-        "vivado_path",
-        nargs="?",
-        help="Vivado 可执行文件路径（可选）。",
-    )
+    p_uninstall.add_argument("vivado_path", nargs="?", help="Optional Vivado executable path.")
 
-    # version
-    sub.add_parser("version", help="显示版本号并退出。")
+    sub.add_parser("version", help="Show the version and exit.")
 
     args = parser.parse_args()
 
-    # 无参数 或 "serve" → 启动 MCP server
     if args.cmd in (None, "serve"):
         from vivado_mcp.server import mcp
+
         mcp.run(transport="stdio")
         return
 
@@ -75,19 +54,26 @@ def main() -> None:
 
     if args.cmd == "install":
         from vivado_mcp.install import install
+
         try:
-            install(vivado_path=args.vivado_path, port=args.port)
-        except (FileNotFoundError, PermissionError, OSError) as e:
-            print(f"[ERROR] {e}", file=sys.stderr)
+            install(
+                vivado_path=args.vivado_path,
+                port=args.port,
+                auth_token=args.auth_token or None,
+                dev_mode=bool(args.dev),
+            )
+        except (FileNotFoundError, PermissionError, OSError) as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
             sys.exit(1)
         return
 
     if args.cmd == "uninstall":
         from vivado_mcp.install import uninstall
+
         try:
             uninstall(vivado_path=args.vivado_path)
-        except (FileNotFoundError, PermissionError, OSError) as e:
-            print(f"[ERROR] {e}", file=sys.stderr)
+        except (FileNotFoundError, PermissionError, OSError) as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
             sys.exit(1)
         return
 
