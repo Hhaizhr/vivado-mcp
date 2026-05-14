@@ -49,7 +49,7 @@ def find_vivado(vivado_path: str | None = None) -> str:
             return normalize_path(matches[0])
 
     raise FileNotFoundError(
-        "Could not find a Vivado installation. Set VIVADO_PATH or add vivado to PATH."
+        "未找到 Vivado installation. Set VIVADO_PATH or add vivado to PATH."
     )
 
 

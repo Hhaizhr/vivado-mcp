@@ -72,6 +72,10 @@ class GuiSession(BaseSession):
         self._connected_port: int | None = None
         self._lock = asyncio.Lock()
         self._tmp_script: str | None = None
+        self._stdout_tail: list[str] = []
+        self._stderr_tail: list[str] = []
+        self._stdout_task: asyncio.Task | None = None
+        self._stderr_task: asyncio.Task | None = None
 
     @property
     def mode(self) -> str:
@@ -124,8 +128,14 @@ class GuiSession(BaseSession):
                     "-nojournal",
                     "-nolog",
                     stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                self._stdout_task = asyncio.create_task(
+                    self._drain_stream(self._proc.stdout, self._stdout_tail)
+                )
+                self._stderr_task = asyncio.create_task(
+                    self._drain_stream(self._proc.stderr, self._stderr_tail)
                 )
             except (OSError, FileNotFoundError) as exc:
                 self._state = SessionState.ERROR
@@ -165,13 +175,43 @@ class GuiSession(BaseSession):
                 self._state = SessionState.ERROR
                 raise RuntimeError(
                     f"Vivado GUI exited early with return code {self._proc.returncode}."
+                    f"{self._startup_output_tail()}"
                 )
             await asyncio.sleep(2.0)
 
         self._state = SessionState.ERROR
         raise RuntimeError(
             f"Timed out connecting to Vivado GUI on ports {ports_to_try}. Last error: {connect_err}"
+            f"{self._startup_output_tail()}"
         )
+
+    async def _drain_stream(
+        self,
+        stream: asyncio.StreamReader | None,
+        tail: list[str],
+        max_lines: int = 40,
+    ) -> None:
+        if stream is None:
+            return
+        try:
+            while True:
+                raw = await stream.readline()
+                if not raw:
+                    break
+                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                if line:
+                    tail.append(line)
+                    del tail[:-max_lines]
+        except asyncio.CancelledError:
+            pass
+
+    def _startup_output_tail(self) -> str:
+        chunks: list[str] = []
+        if self._stdout_tail:
+            chunks.append("--- Vivado stdout tail ---\n" + "\n".join(self._stdout_tail[-20:]))
+        if self._stderr_tail:
+            chunks.append("--- Vivado stderr tail ---\n" + "\n".join(self._stderr_tail[-20:]))
+        return "\n" + "\n".join(chunks) if chunks else ""
 
     def _encode_command(self, command: str) -> bytes:
         payload = f"VMCP_AUTH {self._auth_token}\n{command}".encode("utf-8")
@@ -259,6 +299,14 @@ class GuiSession(BaseSession):
                 await self._writer.wait_closed()
             except Exception:
                 pass
+
+        for task in (self._stdout_task, self._stderr_task):
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except Exception:
+                    pass
             self._writer = None
             self._reader = None
 
