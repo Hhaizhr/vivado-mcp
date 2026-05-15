@@ -1,8 +1,10 @@
-"""IP 调试工具：inspect_ip_params / compare_xci。
+"""IP 调试工具：inspect_ip_params / compare_xci / resolve_ip_vlnv。
 
 inspect_ip_params 通过 Vivado Tcl API 查询 IP 实例的所有 CONFIG.* 参数。
 compare_xci 纯 Python 解析两个 XCI 文件并对比参数差异，无需 Vivado 会话。
 """
+
+import re
 
 from mcp.server.fastmcp import Context
 
@@ -15,6 +17,14 @@ from vivado_mcp.analysis.xci_parser import (
 from vivado_mcp.server import _NO_SESSION, _require_session, mcp
 from vivado_mcp.tcl_scripts import INSPECT_IP_PARAMS
 from vivado_mcp.vivado.tcl_utils import validate_identifier
+
+_IP_NAME_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+_VERSION_RE = re.compile(r"(\d+)")
+
+
+def _version_key(vlnv: str) -> tuple:
+    version = vlnv.split(":")[-1]
+    return tuple(int(part) for part in _VERSION_RE.findall(version))
 
 
 @mcp.tool()
@@ -90,3 +100,74 @@ async def inspect_ip_params(
         return f"[ERROR] IP '{ip_name}' 未找到。请确认 IP 实例名称正确且项目已打开。"
 
     return report.format(keyword=filter_keyword)
+
+
+@mcp.tool()
+async def resolve_ip_vlnv(
+    ip_name: str,
+    session_id: str = "default",
+    ctx: Context = None,
+) -> str:
+    """Resolve the available VLNVs for an IP name and recommend the newest one.
+
+    Useful when Vivado reports an old IP definition first but ``create_ip`` expects
+    a newer VLNV, for example ``microblaze:11.0`` on Vivado 2019.2.
+    """
+    ip_name = ip_name.strip()
+    if not _IP_NAME_RE.match(ip_name):
+        return "[ERROR] ip_name 只能包含字母、数字、下划线、点、冒号和连字符。"
+
+    session = _require_session(ctx, session_id)
+    if not session:
+        return _NO_SESSION.format(sid=session_id)
+
+    tcl = f"""\
+set __defs [get_ipdefs -all -quiet -filter {{NAME == {ip_name}}}]
+if {{[llength $__defs] == 0}} {{
+    set __defs [get_ipdefs -all -quiet *{ip_name}*]
+}}
+foreach __d $__defs {{
+    if {{[catch {{set __vlnv [get_property VLNV $__d]}} __e]}} {{
+        puts "VMCP_IPDEF_WARN:$__d|$__e"
+    }} else {{
+        puts "VMCP_IPDEF:$__vlnv"
+    }}
+}}
+puts "VMCP_IPDEF_DONE"
+"""
+    try:
+        result = await session.execute(tcl, timeout=30.0)
+    except Exception as e:
+        return f"[ERROR] 查询 IP 定义失败: {e}"
+    if result.is_error:
+        return f"[ERROR] 查询 IP 定义失败（rc={result.return_code}）：\n{result.output}"
+
+    vlnvs: list[str] = []
+    warnings: list[str] = []
+    for line in result.output.splitlines():
+        line = line.strip()
+        if line.startswith("VMCP_IPDEF:"):
+            vlnvs.append(line[len("VMCP_IPDEF:"):].strip())
+        elif line.startswith("VMCP_IPDEF_WARN:"):
+            warnings.append(line[len("VMCP_IPDEF_WARN:"):].strip())
+
+    unique = sorted(set(vlnvs), key=_version_key)
+    if not unique:
+        return f"[ERROR] 未找到 IP 定义: {ip_name}"
+
+    recommended = unique[-1]
+    lines = [
+        "--- IP VLNV 解析 ---",
+        f"IP name: {ip_name}",
+        f"Recommended VLNV: {recommended}",
+        "",
+        "Available VLNVs:",
+    ]
+    lines.extend(f"  - {vlnv}" for vlnv in unique)
+    if warnings:
+        lines.append("")
+        lines.append("Warnings:")
+        lines.extend(f"  - {warning}" for warning in warnings[:10])
+    lines.append("")
+    lines.append(f"create_ip example: create_ip -vlnv {recommended} -module_name <name>")
+    return "\n".join(lines)

@@ -11,7 +11,9 @@ import pytest
 
 from vivado_mcp.config import (
     _default_install_globs,
+    _default_xsct_globs,
     find_vivado,
+    find_xsct,
     get_vivado_version,
     normalize_path,
 )
@@ -48,6 +50,13 @@ class TestDefaultInstallGlobs:
             assert any("/opt/Xilinx" in g for g in globs)
             assert all(".bat" not in g for g in globs)
 
+    def test_xsct_windows_globs(self):
+        """Windows 平台返回 Vitis/SDK xsct.bat 路径。"""
+        with patch.object(sys, "platform", "win32"):
+            globs = _default_xsct_globs()
+            assert any("xsct.bat" in g for g in globs)
+            assert any("/Vitis/" in g for g in globs)
+
 
 class TestFindVivado:
     """Vivado 路径查找测试。"""
@@ -74,6 +83,30 @@ class TestFindVivado:
                 with patch("vivado_mcp.config.glob.glob", return_value=[]):
                     with pytest.raises(FileNotFoundError, match="未找到"):
                         find_vivado()
+
+
+class TestFindXsct:
+    """XSCT 路径查找测试。"""
+
+    def test_explicit_path(self, tmp_path):
+        fake = tmp_path / "xsct.bat"
+        fake.write_text("fake")
+        result = find_xsct(str(fake))
+        assert "xsct.bat" in result
+
+    def test_env_var(self, tmp_path):
+        fake = tmp_path / "xsct"
+        fake.write_text("fake")
+        with patch.dict(os.environ, {"XSCT_PATH": str(fake)}):
+            result = find_xsct()
+            assert "xsct" in result
+
+    def test_not_found_raises(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("vivado_mcp.config.shutil.which", return_value=None):
+                with patch("vivado_mcp.config.glob.glob", return_value=[]):
+                    with pytest.raises(FileNotFoundError, match="未找到"):
+                        find_xsct()
 
 
 class TestGetVivadoVersion:

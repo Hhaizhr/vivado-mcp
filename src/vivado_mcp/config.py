@@ -27,6 +27,22 @@ def _default_install_globs() -> list[str]:
     ]
 
 
+def _default_xsct_globs() -> list[str]:
+    if sys.platform == "win32":
+        return [
+            "D:/Xilinx/Vitis/*/bin/xsct.bat",
+            "C:/Xilinx/Vitis/*/bin/xsct.bat",
+            "D:/Xilinx/SDK/*/bin/xsct.bat",
+            "C:/Xilinx/SDK/*/bin/xsct.bat",
+        ]
+    return [
+        "/tools/Xilinx/Vitis/*/bin/xsct",
+        "/opt/Xilinx/Vitis/*/bin/xsct",
+        "/opt/xilinx/Vitis/*/bin/xsct",
+        os.path.expanduser("~/Xilinx/Vitis/*/bin/xsct"),
+    ]
+
+
 def normalize_path(path: str) -> str:
     return path.replace("\\", "/")
 
@@ -50,6 +66,28 @@ def find_vivado(vivado_path: str | None = None) -> str:
 
     raise FileNotFoundError(
         "未找到 Vivado installation. Set VIVADO_PATH or add vivado to PATH."
+    )
+
+
+def find_xsct(xsct_path: str | None = None) -> str:
+    if xsct_path and os.path.isfile(xsct_path):
+        return normalize_path(xsct_path)
+
+    env_path = os.environ.get("XSCT_PATH") or os.environ.get("VITIS_XSCT_PATH")
+    if env_path and os.path.isfile(env_path):
+        return normalize_path(env_path)
+
+    which = shutil.which("xsct") or shutil.which("xsct.bat")
+    if which:
+        return normalize_path(which)
+
+    for pattern in _default_xsct_globs():
+        matches = sorted(glob.glob(pattern), reverse=True)
+        if matches:
+            return normalize_path(matches[0])
+
+    raise FileNotFoundError(
+        "未找到 XSCT installation. Set XSCT_PATH or add xsct to PATH."
     )
 
 

@@ -260,3 +260,51 @@ class TestInspectIpParams:
 
         assert "[ERROR]" in result
         assert "查询 IP 参数失败" in result
+
+
+class TestResolveIpVlnv:
+    """测试 resolve_ip_vlnv 工具。"""
+
+    @pytest.mark.asyncio
+    async def test_recommends_newest_vlnv(self):
+        from vivado_mcp.tools.ip_tools import resolve_ip_vlnv
+
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            return_value=_make_tcl_result(
+                "\n".join(
+                    [
+                        "VMCP_IPDEF:xilinx.com:ip:microblaze:10.0",
+                        "VMCP_IPDEF:xilinx.com:ip:microblaze:11.0",
+                        "VMCP_IPDEF_DONE",
+                    ]
+                )
+            )
+        )
+
+        with patch("vivado_mcp.tools.ip_tools._require_session", return_value=session):
+            result = await resolve_ip_vlnv("microblaze", ctx=_mock_context(session))
+
+        assert "Recommended VLNV: xilinx.com:ip:microblaze:11.0" in result
+        assert "create_ip -vlnv xilinx.com:ip:microblaze:11.0" in result
+
+    @pytest.mark.asyncio
+    async def test_not_found(self):
+        from vivado_mcp.tools.ip_tools import resolve_ip_vlnv
+
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=_make_tcl_result("VMCP_IPDEF_DONE"))
+
+        with patch("vivado_mcp.tools.ip_tools._require_session", return_value=session):
+            result = await resolve_ip_vlnv("missing_ip", ctx=_mock_context(session))
+
+        assert "[ERROR]" in result
+        assert "未找到 IP 定义" in result
+
+    @pytest.mark.asyncio
+    async def test_invalid_name(self):
+        from vivado_mcp.tools.ip_tools import resolve_ip_vlnv
+
+        result = await resolve_ip_vlnv("bad ip;rm", ctx=_mock_context())
+
+        assert "[ERROR]" in result

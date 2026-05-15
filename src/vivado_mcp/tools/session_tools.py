@@ -117,6 +117,25 @@ def _tasklist_count(image_name: str) -> int | str:
     )
 
 
+def _taskkill_image(image_name: str) -> str:
+    if os.name != "nt":
+        return "unsupported on non-Windows hosts"
+    try:
+        proc = subprocess.run(
+            ["taskkill", "/F", "/IM", image_name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except Exception as exc:
+        return f"error: {exc}"
+    text = (proc.stdout + proc.stderr).strip()
+    if proc.returncode == 128 and "not found" in text.lower():
+        return "not running"
+    return text or f"taskkill exited with rc={proc.returncode}"
+
+
 @mcp.tool()
 async def diagnose_local_sessions(
     port_start: int = 9999,
@@ -149,6 +168,44 @@ async def diagnose_local_sessions(
             "Typical recovery:",
             "  1. If a port is open, try start_session(mode='attach', port=<open port>).",
             "  2. If xsimk.exe remains after a bad simulation, close it before rerunning.",
-            "  3. If no bridge port is open, launch Vivado GUI and attach again.",
+            "  3. Run cleanup_local_processes(kill_xsim=True) for stale simulations.",
+            "  4. If no bridge port is open, launch Vivado GUI and attach again.",
+        ]
+    )
+
+
+@mcp.tool()
+async def cleanup_local_processes(
+    kill_xsim: bool = True,
+    kill_vivado: bool = False,
+    ctx: Context = None,
+) -> str:
+    """Clean up stale local Vivado-related processes.
+
+    By default this only terminates xsimk.exe, because stale xsim processes are
+    common after accidental open-ended simulations. Vivado itself is never killed
+    unless kill_vivado=True is explicitly passed.
+    """
+    before = {
+        "vivado.exe": _tasklist_count("vivado.exe"),
+        "xsimk.exe": _tasklist_count("xsimk.exe"),
+    }
+    actions: list[str] = []
+    if kill_xsim:
+        actions.append(f"xsimk.exe: {_taskkill_image('xsimk.exe')}")
+    if kill_vivado:
+        actions.append(f"vivado.exe: {_taskkill_image('vivado.exe')}")
+
+    after = {
+        "vivado.exe": _tasklist_count("vivado.exe"),
+        "xsimk.exe": _tasklist_count("xsimk.exe"),
+    }
+    return "\n".join(
+        [
+            "--- Vivado local process cleanup ---",
+            f"before: {json.dumps(before, ensure_ascii=False)}",
+            "actions:",
+            *(f"  - {action}" for action in actions),
+            f"after: {json.dumps(after, ensure_ascii=False)}",
         ]
     )
