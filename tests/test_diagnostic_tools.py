@@ -696,6 +696,45 @@ class TestGenerateBitstreamSafety:
 
 
 # ====================================================================== #
+#  get_project_info 容错测试
+# ====================================================================== #
+
+
+class TestGetProjectInfo:
+    """测试 get_project_info 对局部查询失败的容错。"""
+
+    @pytest.mark.asyncio
+    async def test_formats_partial_report_with_warnings(self):
+        from vivado_mcp.tools.report_tools import get_project_info
+
+        raw = """\
+VMCP_PROJ:project_name=bd_smoke
+VMCP_PROJ:project_dir=C:/proj/bd_smoke
+VMCP_PROJ:part=xc7z020clg400-1
+VMCP_PROJ_WARN:top|current_fileset unavailable
+VMCP_PROJ_FILE:source|Block Designs|C:/proj/bd_smoke/src/system.bd
+VMCP_PROJ_IP:bd//system/axi_timer_0|xilinx.com:ip:axi_timer:2.0
+VMCP_PROJ_WARN:ips|get_ips failed on packaged BD
+VMCP_PROJ:synth_status=synth_design Complete!
+VMCP_PROJ:impl_status=route_design Complete!
+VMCP_PROJ_DONE
+"""
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=_make_tcl_result(raw))
+
+        ctx = _mock_context(session)
+
+        with patch("vivado_mcp.tools.report_tools._require_session", return_value=session):
+            result = await get_project_info(session_id="default", ctx=ctx)
+
+        assert "[ERROR]" not in result
+        assert "bd_smoke" in result
+        assert "axi_timer_0" in result
+        assert "局部查询警告(2 条)" in result
+        assert "current_fileset unavailable" in result
+
+
+# ====================================================================== #
 #  get_io_report 测试
 # ====================================================================== #
 

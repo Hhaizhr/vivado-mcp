@@ -50,6 +50,22 @@ def test_format_shows_key_fields():
     assert "place_design ERROR" in text
 
 
+def test_parses_partial_warnings_and_bd_ips():
+    raw = SAMPLE + """\
+VMCP_PROJ_IP:bd//ps_pl_irq/axi_timer_0|xilinx.com:ip:axi_timer:2.0
+VMCP_PROJ_WARN:bd_ips|Cannot query BD cells without an open block design
+"""
+    info = parse_project_info(raw)
+    text = format_project_info(info)
+
+    assert any(ip.name == "bd//ps_pl_irq/axi_timer_0" for ip in info.ips)
+    assert info.warnings == [
+        "bd_ips: Cannot query BD cells without an open block design"
+    ]
+    assert "局部查询警告(1 条)" in text
+    assert "Cannot query BD cells" in text
+
+
 def test_error_passthrough():
     err_raw = "VMCP_PROJ:error=no_project_open\n"
     info = parse_project_info(err_raw)

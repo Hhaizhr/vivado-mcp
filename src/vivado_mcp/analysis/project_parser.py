@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 _KV_RE = re.compile(r"VMCP_PROJ:(\w+)=(.*)")
 _FILE_RE = re.compile(r"VMCP_PROJ_FILE:(\w+)\|([^|]+)\|(.+)")
 _IP_RE = re.compile(r"VMCP_PROJ_IP:([^|]+)\|(.+)")
+_WARN_RE = re.compile(r"VMCP_PROJ_WARN:([^|]+)\|(.+)")
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class ProjectInfo:
     impl_status: str = ""
     files: list[ProjectFile] = field(default_factory=list)
     ips: list[ProjectIp] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     error: str = ""  # 若项目未打开等错误场景
 
     def to_dict(self) -> dict:
@@ -49,6 +51,7 @@ class ProjectInfo:
             "impl_status": self.impl_status,
             "files": [asdict(f) for f in self.files],
             "ips": [asdict(i) for i in self.ips],
+            "warnings": list(self.warnings),
             "error": self.error,
         }
 
@@ -93,6 +96,13 @@ def parse_project_info(raw: str) -> ProjectInfo:
                 name=m_ip.group(1).strip(),
                 vlnv=m_ip.group(2).strip(),
             ))
+            continue
+
+        m_warn = _WARN_RE.match(line)
+        if m_warn is not None:
+            stage = m_warn.group(1).strip()
+            msg = m_warn.group(2).strip()
+            info.warnings.append(f"{stage}: {msg}")
 
     return info
 
@@ -132,5 +142,13 @@ def format_project_info(info: ProjectInfo) -> str:
         lines.append(f"  {ip.name}  —  {ip.vlnv}")
     if len(info.ips) > 10:
         lines.append(f"  ... 还有 {len(info.ips) - 10} 个 IP")
+
+    if info.warnings:
+        lines.append("")
+        lines.append(f"局部查询警告({len(info.warnings)} 条):")
+        for warning in info.warnings[:10]:
+            lines.append(f"  - {warning}")
+        if len(info.warnings) > 10:
+            lines.append(f"  ... 还有 {len(info.warnings) - 10} 条警告")
 
     return "\n".join(lines)

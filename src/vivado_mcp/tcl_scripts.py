@@ -196,55 +196,107 @@ puts "VMCP_STAGE:stage=$__stage|synth_status=$__synth_status|impl_status=$__impl
 # --------------------------------------------------------------------------- #
 
 QUERY_PROJECT_INFO = """\
+proc __vmcp_proj_warn {stage msg} {
+    puts "VMCP_PROJ_WARN:$stage|$msg"
+}
+
 # 项目基本信息
 if {[catch {current_project} __proj]} {
     puts "VMCP_PROJ:error=no_project_open"
 } else {
-    set __name [get_property NAME [current_project]]
-    set __dir  [get_property DIRECTORY [current_project]]
-    set __part [get_property PART [current_project]]
-    puts "VMCP_PROJ:project_name=$__name"
-    puts "VMCP_PROJ:project_dir=$__dir"
-    puts "VMCP_PROJ:part=$__part"
+    if {[catch {
+        set __name [get_property NAME [current_project]]
+        set __dir  [get_property DIRECTORY [current_project]]
+        set __part [get_property PART [current_project]]
+        puts "VMCP_PROJ:project_name=$__name"
+        puts "VMCP_PROJ:project_dir=$__dir"
+        puts "VMCP_PROJ:part=$__part"
+    } __e]} {
+        __vmcp_proj_warn meta $__e
+    }
 
     # 顶层
-    set __top [get_property TOP [current_fileset]]
-    puts "VMCP_PROJ:top=$__top"
+    if {[catch {
+        set __top [get_property TOP [current_fileset]]
+        puts "VMCP_PROJ:top=$__top"
+    } __e]} {
+        __vmcp_proj_warn top $__e
+    }
 
     # 源文件列表(sources_1)
-    set __srcs [get_files -quiet -of_objects [get_filesets sources_1]]
-    puts "VMCP_PROJ:source_count=[llength $__srcs]"
-    foreach __f $__srcs {
-        set __ft [get_property FILE_TYPE $__f]
-        puts "VMCP_PROJ_FILE:source|$__ft|$__f"
+    if {[catch {
+        set __srcs [get_files -quiet -of_objects [get_filesets sources_1]]
+        puts "VMCP_PROJ:source_count=[llength $__srcs]"
+        foreach __f $__srcs {
+            if {[catch {set __ft [get_property FILE_TYPE $__f]} __e]} {
+                set __ft UNKNOWN
+                __vmcp_proj_warn source_file $__e
+            }
+            puts "VMCP_PROJ_FILE:source|$__ft|$__f"
+        }
+    } __e]} {
+        __vmcp_proj_warn sources $__e
     }
 
     # XDC 约束文件
-    set __xdcs [get_files -quiet -of_objects [get_filesets constrs_1] \
-                -filter {FILE_TYPE == XDC}]
-    puts "VMCP_PROJ:xdc_count=[llength $__xdcs]"
-    foreach __f $__xdcs {
-        puts "VMCP_PROJ_FILE:xdc|XDC|$__f"
+    if {[catch {
+        set __xdcs [get_files -quiet -of_objects [get_filesets constrs_1] \
+                    -filter {FILE_TYPE == XDC}]
+        puts "VMCP_PROJ:xdc_count=[llength $__xdcs]"
+        foreach __f $__xdcs {
+            puts "VMCP_PROJ_FILE:xdc|XDC|$__f"
+        }
+    } __e]} {
+        __vmcp_proj_warn xdc $__e
     }
 
     # IP 列表
-    set __ips [get_ips -quiet]
-    puts "VMCP_PROJ:ip_count=[llength $__ips]"
-    foreach __ip $__ips {
-        set __vlnv [get_property VLNV $__ip]
-        puts "VMCP_PROJ_IP:$__ip|$__vlnv"
+    if {[catch {
+        set __ips [get_ips -quiet]
+        puts "VMCP_PROJ:ip_count=[llength $__ips]"
+        foreach __ip $__ips {
+            if {[catch {set __vlnv [get_property VLNV $__ip]} __e]} {
+                set __vlnv UNKNOWN
+                __vmcp_proj_warn ip_vlnv $__e
+            }
+            puts "VMCP_PROJ_IP:$__ip|$__vlnv"
+        }
+    } __e]} {
+        __vmcp_proj_warn ips $__e
+    }
+
+    # BD 内的 IP cell。复杂 block design 工程里 get_ips 可能不足以说明结构。
+    if {[catch {
+        set __bd_cells [get_bd_cells -quiet -hier -filter {VLNV != ""}]
+        foreach __cell $__bd_cells {
+            if {[catch {set __vlnv [get_property VLNV $__cell]} __e]} {
+                set __vlnv UNKNOWN
+                __vmcp_proj_warn bd_vlnv $__e
+            }
+            puts "VMCP_PROJ_IP:bd/$__cell|$__vlnv"
+        }
+    } __e]} {
+        __vmcp_proj_warn bd_ips $__e
     }
 
     # Run 状态
-    if {[llength [get_runs -quiet synth_1]] > 0} {
-        puts "VMCP_PROJ:synth_status=[get_property STATUS [get_runs synth_1]]"
-    } else {
-        puts "VMCP_PROJ:synth_status=No run"
+    if {[catch {
+        if {[llength [get_runs -quiet synth_1]] > 0} {
+            puts "VMCP_PROJ:synth_status=[get_property STATUS [get_runs synth_1]]"
+        } else {
+            puts "VMCP_PROJ:synth_status=No run"
+        }
+    } __e]} {
+        __vmcp_proj_warn synth_status $__e
     }
-    if {[llength [get_runs -quiet impl_1]] > 0} {
-        puts "VMCP_PROJ:impl_status=[get_property STATUS [get_runs impl_1]]"
-    } else {
-        puts "VMCP_PROJ:impl_status=No run"
+    if {[catch {
+        if {[llength [get_runs -quiet impl_1]] > 0} {
+            puts "VMCP_PROJ:impl_status=[get_property STATUS [get_runs impl_1]]"
+        } else {
+            puts "VMCP_PROJ:impl_status=No run"
+        }
+    } __e]} {
+        __vmcp_proj_warn impl_status $__e
     }
     puts "VMCP_PROJ_DONE"
 }
