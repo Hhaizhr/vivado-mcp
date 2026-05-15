@@ -49,4 +49,4 @@ async def test_run_behavioral_simulation_executes_bounded_runtime():
     assert "runtime: 300 ns" in result
     tcl = session.execute.call_args.args[0]
     assert "launch_simulation -simset sim_1 -mode behavioral" in tcl
-    assert "run {300 ns}" in tcl
+    assert "run 300 ns" in tcl

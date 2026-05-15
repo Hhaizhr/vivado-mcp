@@ -64,9 +64,9 @@ async def run_behavioral_simulation(
         [
             f"if {{[catch {{launch_simulation -simset {simset} -mode behavioral}} __e]}} "
             "{ incr __vmcp_sim_errors; lappend __vmcp_sim_notes \"launch:$__e\" }",
-            "if {$__vmcp_sim_errors == 0 && [catch {run {"
+            "if {$__vmcp_sim_errors == 0 && [catch {run "
             + runtime
-            + "}} __e]} { incr __vmcp_sim_errors; lappend __vmcp_sim_notes \"run:$__e\" }",
+            + "} __e]} { incr __vmcp_sim_errors; lappend __vmcp_sim_notes \"run:$__e\" }",
             "if {[catch {set __vmcp_now [current_time]}]} { set __vmcp_now unknown }",
             'puts "VMCP_SIM|errors=$__vmcp_sim_errors|time=$__vmcp_now|notes=$__vmcp_sim_notes"',
         ]
