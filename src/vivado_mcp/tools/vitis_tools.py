@@ -26,14 +26,21 @@ def _run_xsct(script: str, xsct_path: str = "", timeout: int = 300) -> tuple[int
         script_path = tmp.name
     try:
         cmd = [exe, script_path]
+        env = os.environ.copy()
         if exe.lower().endswith(".bat"):
             cmd = ["cmd", "/c", exe, script_path]
+            # Xilinx 2019.2 batch launchers infer win32/win64 from these vars.
+            # Codex/MCP can inherit a reduced environment that makes loader.bat
+            # choose win32.o, which does not exist on this install.
+            env["PROCESSOR_ARCHITECTURE"] = "AMD64"
+            env.setdefault("PROCESSOR_ARCHITEW6432", "AMD64")
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=timeout,
             check=False,
+            env=env,
         )
         return proc.returncode, (proc.stdout + proc.stderr).strip()
     finally:

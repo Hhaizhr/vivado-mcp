@@ -103,3 +103,6 @@ def test_run_xsct_wraps_bat_with_cmd(tmp_path):
         "/c",
         "D:/Xilinx/Vitis/2019.2/bin/xsct.bat",
     ]
+    env = run.call_args.kwargs["env"]
+    assert env["PROCESSOR_ARCHITECTURE"] == "AMD64"
+    assert env["PROCESSOR_ARCHITEW6432"] == "AMD64"
