@@ -78,6 +78,63 @@ async def test_build_vitis_app_rejects_missing_workspace(tmp_path):
     assert "workspace 不存在" in result
 
 
+def test_format_xsa_summary_includes_address_and_interrupt():
+    from vivado_mcp.tools.vitis_tools import _format_xsa_summary
+
+    raw = "\n".join(
+        [
+            "VMCP_XSA_PROCESSOR:ps7_cortexa9_0",
+            "VMCP_XSA_CELL:axi_timer_0|xilinx.com:ip:axi_timer:2.0",
+            "VMCP_XSA_MEM:axi_timer_0|0x42800000|0x4280FFFF|REGISTER|M_AXI_GP0|S_AXI",
+            "VMCP_XSA_INTR:axi_timer_0|interrupt|O|LEVEL_HIGH",
+        ]
+    )
+
+    text = _format_xsa_summary(raw)
+
+    assert "ps7_cortexa9_0" in text
+    assert "axi_timer_0: xilinx.com:ip:axi_timer:2.0" in text
+    assert "0x42800000..0x4280FFFF" in text
+    assert "axi_timer_0/interrupt" in text
+
+
+@pytest.mark.asyncio
+async def test_write_vitis_source_file(tmp_path):
+    from vivado_mcp.tools.vitis_tools import write_vitis_source_file
+
+    app = tmp_path / "workspace" / "app"
+    app.mkdir(parents=True)
+
+    result = await write_vitis_source_file(
+        workspace=str(tmp_path / "workspace"),
+        app_name="app",
+        relative_path="src/main.c",
+        content="int main(void) { return 0; }\n",
+    )
+
+    target = app / "src" / "main.c"
+    assert target.read_text(encoding="utf-8") == "int main(void) { return 0; }\n"
+    assert "Vitis source file written" in result
+
+
+@pytest.mark.asyncio
+async def test_write_vitis_source_rejects_path_escape(tmp_path):
+    from vivado_mcp.tools.vitis_tools import write_vitis_source_file
+
+    app = tmp_path / "workspace" / "app"
+    app.mkdir(parents=True)
+
+    result = await write_vitis_source_file(
+        workspace=str(tmp_path / "workspace"),
+        app_name="app",
+        relative_path="../main.c",
+        content="bad",
+    )
+
+    assert "[ERROR]" in result
+    assert "相对路径" in result or "relative_path" in result
+
+
 def test_run_xsct_wraps_bat_with_cmd(tmp_path):
     from vivado_mcp.tools.vitis_tools import _run_xsct
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -12,6 +13,8 @@ from mcp.server.fastmcp import Context
 from vivado_mcp.config import find_xsct, normalize_path
 from vivado_mcp.server import mcp
 from vivado_mcp.vivado.tcl_utils import to_tcl_path, validate_identifier
+
+_SAFE_RELATIVE_SOURCE_RE = re.compile(r"^[A-Za-z0-9_./\\:-]{1,240}$")
 
 
 def _run_xsct(script: str, xsct_path: str = "", timeout: int = 300) -> tuple[int, str]:
@@ -50,6 +53,93 @@ def _run_xsct(script: str, xsct_path: str = "", timeout: int = 300) -> tuple[int
             pass
 
 
+def _format_xsa_summary(raw: str) -> str:
+    processors: list[str] = []
+    cells: list[tuple[str, str]] = []
+    mem_ranges: list[dict[str, str]] = []
+    interrupt_pins: list[dict[str, str]] = []
+
+    for line in raw.splitlines():
+        if line.startswith("VMCP_XSA_PROCESSOR:"):
+            processors.append(line.split(":", 1)[1].strip())
+        elif line.startswith("VMCP_XSA_CELL:"):
+            name, _, vlnv = line.split(":", 1)[1].partition("|")
+            cells.append((name.strip(), vlnv.strip()))
+        elif line.startswith("VMCP_XSA_MEM:"):
+            parts = line.split(":", 1)[1].split("|")
+            if len(parts) >= 6:
+                mem_ranges.append(
+                    {
+                        "instance": parts[0],
+                        "base": parts[1],
+                        "high": parts[2],
+                        "type": parts[3],
+                        "master": parts[4],
+                        "slave": parts[5],
+                    }
+                )
+        elif line.startswith("VMCP_XSA_INTR:"):
+            parts = line.split(":", 1)[1].split("|")
+            if len(parts) >= 4:
+                interrupt_pins.append(
+                    {
+                        "cell": parts[0],
+                        "pin": parts[1],
+                        "direction": parts[2],
+                        "sensitivity": parts[3],
+                    }
+                )
+
+    lines = ["--- XSA summary ---"]
+    lines.append(f"Processors ({len(processors)}):")
+    lines.extend(f"  - {p}" for p in processors[:10])
+    if not processors:
+        lines.append("  (none found)")
+
+    user_cells = [
+        (name, vlnv)
+        for name, vlnv in cells
+        if not name.startswith("ps7_") or name == "ps7_0"
+    ]
+    lines.append("")
+    lines.append(f"Design cells ({len(user_cells)} shown / {len(cells)} total):")
+    for name, vlnv in user_cells[:20]:
+        lines.append(f"  - {name}: {vlnv}")
+    if len(user_cells) > 20:
+        lines.append(f"  ... {len(user_cells) - 20} more")
+
+    user_mems = [
+        m
+        for m in mem_ranges
+        if not m["instance"].startswith("ps7_") or m["instance"] in {"ps7_ddr_0", "ps7_ram_0"}
+    ]
+    lines.append("")
+    lines.append(f"Address ranges ({len(user_mems)} shown / {len(mem_ranges)} total):")
+    for mem in user_mems[:20]:
+        lines.append(
+            "  - {instance}: {base}..{high} ({type}, master={master}, slave={slave})".format(
+                **mem
+            )
+        )
+    if len(user_mems) > 20:
+        lines.append(f"  ... {len(user_mems) - 20} more")
+
+    lines.append("")
+    lines.append(f"Interrupt pins ({len(interrupt_pins)}):")
+    for intr in interrupt_pins[:20]:
+        lines.append(
+            "  - {cell}/{pin}: dir={direction}, sensitivity={sensitivity}".format(
+                **intr
+            )
+        )
+    if not interrupt_pins:
+        lines.append("  (none found)")
+    if len(interrupt_pins) > 20:
+        lines.append(f"  ... {len(interrupt_pins) - 20} more")
+
+    return "\n".join(lines)
+
+
 @mcp.tool()
 async def locate_xsct(xsct_path: str = "", ctx: Context = None) -> str:
     """Locate the XSCT executable used by Vitis automation."""
@@ -82,6 +172,32 @@ foreach __c [hsi::get_cells] {{
     if {{$__vlnv ne ""}} {{
         puts "VMCP_XSA_CELL:$__c|$__vlnv"
     }}
+    foreach __p [hsi::get_pins -of_objects $__c] {{
+        set __type ""
+        catch {{set __type [common::get_property TYPE $__p]}}
+        if {{$__type eq "INTERRUPT"}} {{
+            set __dir ""
+            set __sens ""
+            catch {{set __dir [common::get_property DIRECTION $__p]}}
+            catch {{set __sens [common::get_property SENSITIVITY $__p]}}
+            puts "VMCP_XSA_INTR:$__c|$__p|$__dir|$__sens"
+        }}
+    }}
+}}
+foreach __m [hsi::get_mem_ranges] {{
+    set __inst ""
+    set __base ""
+    set __high ""
+    set __type ""
+    set __master ""
+    set __slave ""
+    catch {{set __inst [common::get_property INSTANCE $__m]}}
+    catch {{set __base [common::get_property BASE_VALUE $__m]}}
+    catch {{set __high [common::get_property HIGH_VALUE $__m]}}
+    catch {{set __type [common::get_property MEM_TYPE $__m]}}
+    catch {{set __master [common::get_property MASTER_INTERFACE $__m]}}
+    catch {{set __slave [common::get_property SLAVE_INTERFACE $__m]}}
+    puts "VMCP_XSA_MEM:$__inst|$__base|$__high|$__type|$__master|$__slave"
 }}
 hsi::close_hw_design [hsi::current_hw_design]
 """
@@ -91,7 +207,7 @@ hsi::close_hw_design [hsi::current_hw_design]
         return f"[ERROR] XSCT 执行失败: {e}"
     if rc != 0:
         return f"[ERROR] XSCT inspect_xsa 失败（rc={rc}）：\n{output}"
-    return "--- XSA inspect result ---\n" + output
+    return _format_xsa_summary(output) + "\n\n--- Raw XSA inspect result ---\n" + output
 
 
 @mcp.tool()
@@ -165,3 +281,54 @@ puts "VMCP_VITIS_BUILD_DONE:{app_name}"
     if rc != 0:
         return f"[ERROR] Vitis app build 失败（rc={rc}）：\n{output}"
     return "--- Vitis app build result ---\n" + output
+
+
+@mcp.tool()
+async def write_vitis_source_file(
+    workspace: str,
+    app_name: str,
+    relative_path: str,
+    content: str,
+    build_after: bool = False,
+    xsct_path: str = "",
+    timeout_seconds: int = 300,
+    ctx: Context = None,
+) -> str:
+    """Write a source file inside a Vitis app and optionally build the app."""
+    try:
+        app_name = validate_identifier(app_name, "app_name")
+    except ValueError as e:
+        return f"[ERROR] {e}"
+    if not _SAFE_RELATIVE_SOURCE_RE.match(relative_path):
+        return "[ERROR] relative_path 含非法字符。"
+    if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
+        return "[ERROR] relative_path 必须是 app 内部相对路径，不能包含 '..'。"
+
+    app_dir = Path(workspace) / app_name
+    if not app_dir.is_dir():
+        return f"[ERROR] Vitis app 目录不存在: {app_dir}"
+
+    target = (app_dir / relative_path).resolve()
+    app_root = app_dir.resolve()
+    if app_root not in target.parents and target != app_root:
+        return f"[ERROR] 目标文件超出 app 目录: {target}"
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8", newline="\n")
+
+    lines = [
+        "--- Vitis source file written ---",
+        f"file: {normalize_path(str(target))}",
+        f"bytes: {target.stat().st_size}",
+    ]
+    if build_after:
+        build = await build_vitis_app(
+            workspace=workspace,
+            app_name=app_name,
+            xsct_path=xsct_path,
+            timeout_seconds=timeout_seconds,
+            ctx=ctx,
+        )
+        lines.append("")
+        lines.append(build)
+    return "\n".join(lines)

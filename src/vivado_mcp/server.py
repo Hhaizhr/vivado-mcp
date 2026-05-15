@@ -291,6 +291,7 @@ def debug_pcie() -> str:
 #  导入工具模块，触发 @mcp.tool() 装饰器注册
 # --------------------------------------------------------------------------- #
 
+import vivado_mcp.tools.bd_tools  # noqa: E402, F401
 import vivado_mcp.tools.diagnostic_tools  # noqa: E402, F401
 import vivado_mcp.tools.flow_tools  # noqa: E402, F401
 import vivado_mcp.tools.ip_tools  # noqa: E402, F401
