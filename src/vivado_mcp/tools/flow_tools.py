@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 # 轮询间隔（秒）。综合/实现任务通常以分钟计，2 秒足够快响应完成事件
 _POLL_INTERVAL_SEC = 2.0
 
+
+def _is_bitstream_complete(status: str) -> bool:
+    """Return True only after the write_bitstream step has completed."""
+    lowered = status.lower()
+    return "write_bitstream" in lowered and "complete" in lowered
+
 # --------------------------------------------------------------------------- #
 #  内部辅助：综合 / 实现共享的 launch-and-wait 逻辑
 # --------------------------------------------------------------------------- #
@@ -379,6 +385,14 @@ async def generate_bitstream(
             f"[ERROR] 生成比特流失败。\n状态: {final_status}\n"
             f"进度: {final_progress}\n耗时: {final_elapsed}\n"
             "建议:运行 get_critical_warnings impl_1 查看详情。"
+        )
+
+    if not _is_bitstream_complete(final_status):
+        return (
+            "[ERROR] 比特流尚未完成。\n"
+            f"状态: {final_status}\n"
+            f"进度: {final_progress}\n耗时: {final_elapsed}\n"
+            "说明: generate_bitstream 只有检测到 write_bitstream Complete! 才会返回成功。"
         )
 
     # 查比特流输出目录

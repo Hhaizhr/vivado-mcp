@@ -1,9 +1,14 @@
 """Session management tools."""
 
 import json
+import os
+import socket
+import subprocess
+from pathlib import Path
 
 from mcp.server.fastmcp import Context
 
+from vivado_mcp.config import load_auth_token
 from vivado_mcp.server import _get_manager, mcp
 
 
@@ -51,7 +56,19 @@ async def start_session(
     except ValueError as exc:
         return f"[ERROR] {exc}"
     except Exception as exc:
-        return f"[ERROR] Failed to start session '{session_id}': {exc}"
+        hint = ""
+        if mode == "gui":
+            hint = (
+                "\n\nHint: GUI startup can fail inside sandboxed agents. "
+                "Start Vivado on the desktop, let Vivado_init.tcl load the bridge, "
+                "then call start_session(mode='attach', port=9999)."
+            )
+        elif mode == "attach":
+            hint = (
+                "\n\nHint: Check that Vivado is already open, the bridge banner is visible, "
+                "and try ports 9999-10003. diagnose_local_sessions can inspect common causes."
+            )
+        return f"[ERROR] Failed to start session '{session_id}': {exc}{hint}"
 
 
 @mcp.tool()
@@ -72,3 +89,66 @@ async def list_sessions(ctx: Context = None) -> str:
         return "There are no active Vivado sessions. Use start_session to create one."
 
     return json.dumps(sessions, indent=2, ensure_ascii=False)
+
+
+def _port_open(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.4)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _tasklist_count(image_name: str) -> int | str:
+    if os.name != "nt":
+        return "unsupported"
+    try:
+        proc = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {image_name}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except Exception as exc:
+        return f"error: {exc}"
+    return sum(
+        1
+        for line in proc.stdout.splitlines()
+        if line.lower().startswith(image_name.lower())
+    )
+
+
+@mcp.tool()
+async def diagnose_local_sessions(
+    port_start: int = 9999,
+    port_count: int = 5,
+    ctx: Context = None,
+) -> str:
+    """Diagnose local Vivado MCP session state and common stale-process issues."""
+    manager = _get_manager(ctx)
+    sessions = manager.list_sessions()
+    ports = list(range(int(port_start), int(port_start) + int(port_count)))
+    port_lines = [f"  {port}: {'open' if _port_open(port) else 'closed'}" for port in ports]
+
+    token = load_auth_token()
+    token_state = "present" if token else "missing"
+    home_dir = Path.home() / ".vivado-mcp"
+
+    return "\n".join(
+        [
+            "--- Vivado MCP local diagnostics ---",
+            f"active MCP sessions: {len(sessions)}",
+            json.dumps(sessions, indent=2, ensure_ascii=False) if sessions else "[]",
+            "",
+            "bridge ports:",
+            *port_lines,
+            "",
+            f"auth token: {token_state} ({home_dir / 'auth_token.txt'})",
+            f"vivado.exe processes: {_tasklist_count('vivado.exe')}",
+            f"xsimk.exe processes: {_tasklist_count('xsimk.exe')}",
+            "",
+            "Typical recovery:",
+            "  1. If a port is open, try start_session(mode='attach', port=<open port>).",
+            "  2. If xsimk.exe remains after a bad simulation, close it before rerunning.",
+            "  3. If no bridge port is open, launch Vivado GUI and attach again.",
+        ]
+    )

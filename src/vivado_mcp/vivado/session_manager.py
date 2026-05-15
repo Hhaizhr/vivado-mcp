@@ -20,7 +20,8 @@ _VALID_MODES: tuple[str, ...] = ("gui", "tcl", "attach")
 def _validate_session_id(session_id: str) -> str:
     if not _SESSION_ID_RE.match(session_id):
         raise ValueError(
-            f"Invalid session_id: {session_id!r}. Only letters, digits, underscores, and hyphens are allowed."
+            f"Invalid session_id: {session_id!r}. Only letters, digits, "
+            "underscores, and hyphens are allowed."
         )
     return session_id
 

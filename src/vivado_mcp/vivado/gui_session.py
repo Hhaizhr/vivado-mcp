@@ -100,7 +100,8 @@ class GuiSession(BaseSession):
             if not self._auth_token:
                 self._state = SessionState.ERROR
                 raise RuntimeError(
-                    "Attach mode requires an auth token. Run `vivado-mcp install` first or pass auth_token explicitly."
+                    "Attach mode requires an auth token. Run `vivado-mcp install` "
+                    "first or pass auth_token explicitly."
                 )
         else:
             self._auth_token = self._auth_token or generate_auth_token()
@@ -111,7 +112,12 @@ class GuiSession(BaseSession):
                 raise RuntimeError(str(exc)) from exc
 
             try:
-                with tempfile.NamedTemporaryFile(mode="w", suffix=".tcl", delete=False, encoding="utf-8") as tmp:
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    suffix=".tcl",
+                    delete=False,
+                    encoding="utf-8",
+                ) as tmp:
                     tmp.write(f"set ::VMCP_PORT_PREF {self._port_preference}\n")
                     tmp.write(f"set ::VMCP_AUTH_TOKEN {{{self._auth_token}}}\n")
                     tmp.write(f'source "{script_path.as_posix()}"\n')
@@ -265,7 +271,9 @@ class GuiSession(BaseSession):
         try:
             resp_hdr = await asyncio.wait_for(self._reader.readexactly(4), timeout=timeout)
         except asyncio.TimeoutError as exc:
-            raise asyncio.TimeoutError(f"Timed out waiting for GUI response after {timeout}s.") from exc
+            raise asyncio.TimeoutError(
+                f"Timed out waiting for GUI response after {timeout}s."
+            ) from exc
 
         resp_len = int.from_bytes(resp_hdr, "big")
         if resp_len < 0 or resp_len > _MAX_RESPONSE_BYTES:
@@ -284,7 +292,11 @@ class GuiSession(BaseSession):
     async def stop(self, timeout: float = 10.0) -> None:
         logger.info("Stopping GUI session '%s'", self.session_id)
 
-        if not self._attach_only and self._writer is not None and self._state in (SessionState.READY, SessionState.BUSY):
+        if (
+            not self._attach_only
+            and self._writer is not None
+            and self._state in (SessionState.READY, SessionState.BUSY)
+        ):
             try:
                 self._writer.write(self._encode_command("exit"))
                 await self._writer.drain()

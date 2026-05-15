@@ -24,12 +24,18 @@ def main() -> None:
     p_install.add_argument(
         "--auth-token",
         default="",
-        help="Optional auth token. If omitted, vivado-mcp reuses or generates one and stores it locally.",
+        help=(
+            "Optional auth token. If omitted, vivado-mcp reuses or generates "
+            "one and stores it locally."
+        ),
     )
     p_install.add_argument(
         "--dev",
         action="store_true",
-        help="Source the Tcl bridge directly from the working tree instead of installing a stable copy.",
+        help=(
+            "Source the Tcl bridge directly from the working tree instead of "
+            "installing a stable copy."
+        ),
     )
 
     p_uninstall = sub.add_parser(

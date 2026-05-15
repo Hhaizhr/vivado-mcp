@@ -104,7 +104,10 @@ def install(
     if dev_mode:
         print("Dev mode tracks the current working tree. Restart Vivado after code changes.")
     else:
-        print("Stable mode uses a copied script. Re-run `vivado-mcp install` after updating features.")
+        print(
+            "Stable mode uses a copied script. Re-run `vivado-mcp install` "
+            "after updating features."
+        )
     print("vivado-mcp injection installed successfully.")
 
 
