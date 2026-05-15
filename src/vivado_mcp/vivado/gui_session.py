@@ -23,6 +23,28 @@ _MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 _TMP_SCRIPTS: set[str] = set()
 
 
+def _vivado_gui_command(vivado_path: str, tmp_script: str) -> tuple[list[str], dict[str, str]]:
+    """Return a Windows-stable Vivado GUI launch command and environment."""
+    cmd = [
+        vivado_path,
+        "-mode",
+        "gui",
+        "-source",
+        tmp_script,
+        "-nojournal",
+        "-nolog",
+    ]
+    env = os.environ.copy()
+    if sys.platform == "win32" and vivado_path.lower().endswith((".bat", ".cmd")):
+        cmd = ["cmd", "/c", *cmd]
+        # Xilinx 2019.2 loader.bat chooses win32/win64 from these variables.
+        # Codex/MCP may inherit a reduced environment, so force the known-good
+        # 64-bit launch path used by the stable manual startup workflow.
+        env["PROCESSOR_ARCHITECTURE"] = "AMD64"
+        env["PROCESSOR_ARCHITEW6432"] = "AMD64"
+    return cmd, env
+
+
 def _cleanup_tmp_scripts_atexit() -> None:
     for path in list(_TMP_SCRIPTS):
         try:
@@ -125,17 +147,13 @@ class GuiSession(BaseSession):
                 self._tmp_script = tmp_script
                 _TMP_SCRIPTS.add(tmp_script)
 
+                cmd, env = _vivado_gui_command(self.vivado_path, tmp_script)
                 self._proc = await asyncio.create_subprocess_exec(
-                    self.vivado_path,
-                    "-mode",
-                    "gui",
-                    "-source",
-                    tmp_script,
-                    "-nojournal",
-                    "-nolog",
+                    *cmd,
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    env=env,
                 )
                 self._stdout_task = asyncio.create_task(
                     self._drain_stream(self._proc.stdout, self._stdout_tail)

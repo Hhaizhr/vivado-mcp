@@ -1,3 +1,4 @@
+import zipfile
 from unittest.mock import patch
 
 import pytest
@@ -78,6 +79,22 @@ async def test_build_vitis_app_rejects_missing_workspace(tmp_path):
     assert "workspace 不存在" in result
 
 
+@pytest.mark.asyncio
+async def test_build_vitis_app_failure_suggests_diagnostics(tmp_path):
+    from vivado_mcp.tools.vitis_tools import build_vitis_app
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with patch(
+        "vivado_mcp.tools.vitis_tools._run_xsct",
+        return_value=(1, "Invalid Workspace"),
+    ):
+        result = await build_vitis_app(str(workspace), "app")
+
+    assert "Invalid Workspace" in result
+    assert "diagnose_vitis_workspace" in result
+
+
 def test_format_xsa_summary_includes_address_and_interrupt():
     from vivado_mcp.tools.vitis_tools import _format_xsa_summary
 
@@ -85,6 +102,7 @@ def test_format_xsa_summary_includes_address_and_interrupt():
         [
             "VMCP_XSA_PROCESSOR:ps7_cortexa9_0",
             "VMCP_XSA_CELL:axi_timer_0|xilinx.com:ip:axi_timer:2.0",
+            "VMCP_XSA_MEM:axi_timer_0|0x42800000|0x4280FFFF|REGISTER|M_AXI_GP0|S_AXI",
             "VMCP_XSA_MEM:axi_timer_0|0x42800000|0x4280FFFF|REGISTER|M_AXI_GP0|S_AXI",
             "VMCP_XSA_INTR:axi_timer_0|interrupt|O|LEVEL_HIGH",
         ]
@@ -95,7 +113,148 @@ def test_format_xsa_summary_includes_address_and_interrupt():
     assert "ps7_cortexa9_0" in text
     assert "axi_timer_0: xilinx.com:ip:axi_timer:2.0" in text
     assert "0x42800000..0x4280FFFF" in text
+    assert text.count("0x42800000..0x4280FFFF") == 1
     assert "axi_timer_0/interrupt" in text
+
+
+def test_format_xsa_archive_summary_reports_embedded_bitstream(tmp_path):
+    from vivado_mcp.tools.vitis_tools import _format_xsa_archive_summary
+
+    xsa = tmp_path / "design.xsa"
+    with zipfile.ZipFile(xsa, "w") as archive:
+        archive.writestr("hw/system.bit", "bit")
+        archive.writestr("hw/system.hwh", "hwh")
+
+    text = _format_xsa_archive_summary(str(xsa))
+
+    assert "bitstream embedded: yes" in text
+    assert "hw/system.bit" in text
+    assert "hw/system.hwh" in text
+
+
+def test_format_xsa_archive_summary_reports_missing_bitstream(tmp_path):
+    from vivado_mcp.tools.vitis_tools import _format_xsa_archive_summary
+
+    xsa = tmp_path / "design.xsa"
+    with zipfile.ZipFile(xsa, "w") as archive:
+        archive.writestr("hw/system.hwh", "hwh")
+
+    text = _format_xsa_archive_summary(str(xsa))
+
+    assert "bitstream embedded: no" in text
+    assert "bit_files (0)" in text
+
+
+@pytest.mark.asyncio
+async def test_diagnose_vitis_workspace_reports_projects_logs_and_elf(tmp_path):
+    from vivado_mcp.tools.vitis_tools import diagnose_vitis_workspace
+
+    ws = tmp_path / "workspace"
+    metadata = ws / ".metadata"
+    app = ws / "app"
+    platform = ws / "platform"
+    (app / "src").mkdir(parents=True)
+    (app / "Debug").mkdir()
+    platform.mkdir(parents=True)
+    metadata.mkdir(parents=True)
+    (metadata / ".log").write_text("INFO\nERROR Invalid Workspace\n", encoding="utf-8")
+    (app / ".project").write_text("<projectDescription />", encoding="utf-8")
+    (app / ".cproject").write_text("<cproject />", encoding="utf-8")
+    (app / "src" / "main.c").write_text("int main(void){return 0;}\n", encoding="utf-8")
+    (app / "Debug" / "makefile").write_text("all:\n", encoding="utf-8")
+    (app / "Debug" / "app.elf").write_text("elf", encoding="utf-8")
+    (platform / ".project").write_text("<projectDescription />", encoding="utf-8")
+    (platform / "bsp" / "include").mkdir(parents=True)
+    (platform / "bsp" / "include" / "xparameters.h").write_text("#define XPAR_X 1\n")
+
+    result = await diagnose_vitis_workspace(str(ws), app_name="app", platform_name="platform")
+
+    assert "metadata: present" in result
+    assert "ERROR Invalid Workspace" in result
+    assert "app [cproject, src, Debug/makefile, elf=1]" in result
+    assert "app.elf" in result
+    assert "xparameters.h files (1)" in result
+
+
+@pytest.mark.asyncio
+async def test_inspect_vitis_bsp_reports_relevant_macros(tmp_path):
+    from vivado_mcp.tools.vitis_tools import inspect_vitis_bsp
+
+    ws = tmp_path / "workspace"
+    include = ws / "platform" / "bsp" / "include"
+    include.mkdir(parents=True)
+    (include / "xparameters.h").write_text(
+        "\n".join(
+            [
+                "#define XPAR_AXI_TIMER_0_BASEADDR 0x42800000",
+                "#define XPAR_SCUGIC_0_DEVICE_ID 0",
+                "#define XPS_FPGA0_INT_ID 61",
+                "#define IRRELEVANT 1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = await inspect_vitis_bsp(str(ws), platform_name="platform")
+
+    assert "XPAR_AXI_TIMER_0_BASEADDR = 0x42800000" in result
+    assert "XPAR_SCUGIC_0_DEVICE_ID = 0" in result
+    assert "XPS_FPGA0_INT_ID = 61" in result
+    assert "IRRELEVANT" not in result
+
+
+@pytest.mark.asyncio
+async def test_inspect_vitis_bsp_filters_macros(tmp_path):
+    from vivado_mcp.tools.vitis_tools import inspect_vitis_bsp
+
+    ws = tmp_path / "workspace"
+    include = ws / "platform" / "bsp" / "include"
+    include.mkdir(parents=True)
+    (include / "xparameters.h").write_text(
+        "\n".join(
+            [
+                "#define XPAR_AXI_LITE_REG_CFG_0_BASEADDR 0x43C00000",
+                "#define XPAR_DATA_COUNT_IRQ_AXI_0_BASEADDR 0x43C10000",
+                "#define XPAR_SCUGIC_0_DEVICE_ID 0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = await inspect_vitis_bsp(
+        str(ws),
+        platform_name="platform",
+        macro_filter="DATA_COUNT SCUGIC",
+    )
+
+    assert "macro filter: DATA_COUNT, SCUGIC" in result
+    assert "XPAR_DATA_COUNT_IRQ_AXI_0_BASEADDR = 0x43C10000" in result
+    assert "XPAR_SCUGIC_0_DEVICE_ID = 0" in result
+    assert "XPAR_AXI_LITE_REG_CFG_0_BASEADDR" not in result
+
+
+@pytest.mark.asyncio
+async def test_inspect_vitis_bsp_deduplicates_same_macro_value(tmp_path):
+    from vivado_mcp.tools.vitis_tools import inspect_vitis_bsp
+
+    ws = tmp_path / "workspace"
+    include_a = ws / "platform" / "export" / "include"
+    include_b = ws / "platform" / "bsp" / "include"
+    include_a.mkdir(parents=True)
+    include_b.mkdir(parents=True)
+    content = "#define XPAR_DATA_COUNT_IRQ_AXI_0_BASEADDR 0x43C10000\n"
+    (include_a / "xparameters.h").write_text(content, encoding="utf-8")
+    (include_b / "xparameters.h").write_text(content, encoding="utf-8")
+
+    result = await inspect_vitis_bsp(
+        str(ws),
+        platform_name="platform",
+        macro_filter="DATA_COUNT",
+    )
+
+    assert "relevant macros (1)" in result
+    assert result.count("XPAR_DATA_COUNT_IRQ_AXI_0_BASEADDR") == 1
+    assert "also in 1 more" in result
 
 
 @pytest.mark.asyncio

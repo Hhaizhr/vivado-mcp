@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
 from mcp.server.fastmcp import Context
@@ -15,6 +16,89 @@ from vivado_mcp.server import mcp
 from vivado_mcp.vivado.tcl_utils import to_tcl_path, validate_identifier
 
 _SAFE_RELATIVE_SOURCE_RE = re.compile(r"^[A-Za-z0-9_./\\:-]{1,240}$")
+_BSP_MACRO_RE = re.compile(r"^#define\s+((?:XPAR|XPS)_[A-Za-z0-9_]+)\s+(.+?)\s*$")
+
+
+def _tail_text(path: Path, max_lines: int = 80) -> list[str]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return text.splitlines()[-max_lines:]
+
+
+def _interesting_log_lines(lines: list[str], max_lines: int = 40) -> list[str]:
+    needles = ("ERROR", "Exception", "Invalid Workspace", "reset", "NPE", "NullPointer")
+    interesting = [line for line in lines if any(needle in line for needle in needles)]
+    return (interesting or lines)[-max_lines:]
+
+
+def _inspect_xsa_archive(xsa_path: str) -> dict[str, list[str] | str]:
+    path = Path(xsa_path)
+    info: dict[str, list[str] | str] = {
+        "bit_files": [],
+        "hwh_files": [],
+        "mmi_files": [],
+        "xsa_files": [],
+        "other_hw_files": [],
+    }
+    if not zipfile.is_zipfile(path):
+        info["error"] = "not a zip-format XSA"
+        return info
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+    except (OSError, zipfile.BadZipFile) as exc:
+        info["error"] = str(exc)
+        return info
+
+    suffix_map = {
+        ".bit": "bit_files",
+        ".hwh": "hwh_files",
+        ".mmi": "mmi_files",
+        ".xsa": "xsa_files",
+    }
+    for name in names:
+        lower = name.lower()
+        for suffix, key in suffix_map.items():
+            if lower.endswith(suffix):
+                values = info[key]
+                assert isinstance(values, list)
+                values.append(name)
+                break
+        else:
+            if "/hw/" in lower or lower.startswith("hw/"):
+                values = info["other_hw_files"]
+                assert isinstance(values, list)
+                values.append(name)
+    return info
+
+
+def _format_xsa_archive_summary(xsa_path: str) -> str:
+    info = _inspect_xsa_archive(xsa_path)
+    lines = ["--- XSA archive summary ---"]
+    error = info.get("error")
+    if isinstance(error, str):
+        lines.append(f"archive: {error}")
+        return "\n".join(lines)
+
+    bit_files = info["bit_files"]
+    hwh_files = info["hwh_files"]
+    assert isinstance(bit_files, list)
+    assert isinstance(hwh_files, list)
+    lines.append(f"bitstream embedded: {'yes' if bit_files else 'no'}")
+    for label in ("bit_files", "hwh_files", "mmi_files", "xsa_files"):
+        values = info[label]
+        assert isinstance(values, list)
+        lines.append(f"{label} ({len(values)}):")
+        if values:
+            lines.extend(f"  - {value}" for value in values[:20])
+            if len(values) > 20:
+                lines.append(f"  ... {len(values) - 20} more")
+        else:
+            lines.append("  (none found)")
+    return "\n".join(lines)
 
 
 def _run_xsct(script: str, xsct_path: str = "", timeout: int = 300) -> tuple[int, str]:
@@ -57,6 +141,7 @@ def _format_xsa_summary(raw: str) -> str:
     processors: list[str] = []
     cells: list[tuple[str, str]] = []
     mem_ranges: list[dict[str, str]] = []
+    seen_mem_ranges: set[tuple[str, str, str, str, str, str]] = set()
     interrupt_pins: list[dict[str, str]] = []
 
     for line in raw.splitlines():
@@ -68,6 +153,10 @@ def _format_xsa_summary(raw: str) -> str:
         elif line.startswith("VMCP_XSA_MEM:"):
             parts = line.split(":", 1)[1].split("|")
             if len(parts) >= 6:
+                key = tuple(parts[:6])
+                if key in seen_mem_ranges:
+                    continue
+                seen_mem_ranges.add(key)
                 mem_ranges.append(
                     {
                         "instance": parts[0],
@@ -207,7 +296,13 @@ hsi::close_hw_design [hsi::current_hw_design]
         return f"[ERROR] XSCT 执行失败: {e}"
     if rc != 0:
         return f"[ERROR] XSCT inspect_xsa 失败（rc={rc}）：\n{output}"
-    return _format_xsa_summary(output) + "\n\n--- Raw XSA inspect result ---\n" + output
+    return (
+        _format_xsa_archive_summary(xsa_path)
+        + "\n\n"
+        + _format_xsa_summary(output)
+        + "\n\n--- Raw XSA inspect result ---\n"
+        + output
+    )
 
 
 @mcp.tool()
@@ -279,7 +374,12 @@ puts "VMCP_VITIS_BUILD_DONE:{app_name}"
     except Exception as e:
         return f"[ERROR] XSCT 执行失败: {e}"
     if rc != 0:
-        return f"[ERROR] Vitis app build 失败（rc={rc}）：\n{output}"
+        return (
+            f"[ERROR] Vitis app build 失败（rc={rc}）：\n{output}\n\n"
+            "Hint: 如果看到 Invalid Workspace / XSCT channel reset，先调用 "
+            "diagnose_vitis_workspace(workspace=...) 检查 metadata、project 和日志；"
+            "不要继续尝试操控 Vitis GUI 打开文件。"
+        )
     return "--- Vitis app build result ---\n" + output
 
 
@@ -331,4 +431,207 @@ async def write_vitis_source_file(
         )
         lines.append("")
         lines.append(build)
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def diagnose_vitis_workspace(
+    workspace: str,
+    app_name: str = "",
+    platform_name: str = "",
+    log_lines: int = 80,
+    ctx: Context = None,
+) -> str:
+    """Diagnose Vitis workspace metadata, projects, logs, and app build outputs."""
+    ws = Path(workspace)
+    if not ws.is_dir():
+        return f"[ERROR] workspace 不存在: {workspace}"
+
+    lines = ["--- Vitis workspace diagnostics ---", f"workspace: {normalize_path(str(ws))}"]
+
+    metadata = ws / ".metadata"
+    lines.append(f"metadata: {'present' if metadata.is_dir() else 'missing'}")
+    log = metadata / ".log"
+    if log.is_file():
+        lines.append(f"log: {normalize_path(str(log))}")
+        tail = _tail_text(log, max_lines=max(1, int(log_lines)))
+        interesting = _interesting_log_lines(tail)
+        if interesting:
+            lines.append("log highlights:")
+            lines.extend(f"  {line}" for line in interesting)
+    else:
+        lines.append("log: missing")
+
+    projects: list[Path] = []
+    for child in sorted(ws.iterdir()):
+        if child.is_dir() and (child / ".project").is_file():
+            projects.append(child)
+
+    lines.append("")
+    lines.append(f"projects ({len(projects)}):")
+    if projects:
+        for project in projects[:30]:
+            markers = []
+            if (project / ".cproject").is_file():
+                markers.append("cproject")
+            if (project / ".sdkproject").is_file():
+                markers.append("sdkproject")
+            if (project / "src").is_dir():
+                markers.append("src")
+            if (project / "Debug" / "makefile").is_file():
+                markers.append("Debug/makefile")
+            elf_count = len(list(project.rglob("*.elf")))
+            if elf_count:
+                markers.append(f"elf={elf_count}")
+            suffix = f" [{', '.join(markers)}]" if markers else ""
+            lines.append(f"  - {project.name}{suffix}")
+    else:
+        lines.append("  (none found)")
+
+    if app_name:
+        try:
+            app_name = validate_identifier(app_name, "app_name")
+        except ValueError as e:
+            return f"[ERROR] {e}"
+        app_dir = ws / app_name
+        lines.append("")
+        lines.append(f"app: {app_name}")
+        lines.append(f"  dir: {'present' if app_dir.is_dir() else 'missing'}")
+        if app_dir.is_dir():
+            src_dir = app_dir / "src"
+            src_files = (
+                sorted(p.name for p in src_dir.glob("*") if p.is_file())
+                if src_dir.is_dir()
+                else []
+            )
+            lines.append(f"  src files ({len(src_files)}): {', '.join(src_files[:30]) or '(none)'}")
+            debug_dir = app_dir / "Debug"
+            makefile_state = "present" if (debug_dir / "makefile").is_file() else "missing"
+            lines.append(f"  Debug/makefile: {makefile_state}")
+            elfs = sorted(app_dir.rglob("*.elf"))
+            lines.append(f"  ELF files ({len(elfs)}):")
+            lines.extend(f"    - {normalize_path(str(path))}" for path in elfs[:10])
+            if not elfs:
+                lines.append("    (none found)")
+
+    if platform_name:
+        try:
+            platform_name = validate_identifier(platform_name, "platform_name")
+        except ValueError as e:
+            return f"[ERROR] {e}"
+        platform_dir = ws / platform_name
+        lines.append("")
+        lines.append(f"platform: {platform_name}")
+        lines.append(f"  dir: {'present' if platform_dir.is_dir() else 'missing'}")
+        if platform_dir.is_dir():
+            xparams = sorted(platform_dir.rglob("xparameters.h"))
+            lines.append(f"  xparameters.h files ({len(xparams)}):")
+            lines.extend(f"    - {normalize_path(str(path))}" for path in xparams[:10])
+            if not xparams:
+                lines.append("    (none found)")
+
+    lines.append("")
+    lines.append(
+        "Guidance: Vitis 2019.2 GUI/workspace metadata can be fragile. Prefer XSCT/helper "
+        "builds for automation; use the GUI mainly for manual debug. For source viewing, "
+        "open files directly instead of forcing Vitis IDE project import."
+    )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def inspect_vitis_bsp(
+    workspace: str,
+    app_name: str = "",
+    platform_name: str = "",
+    macro_filter: str = "",
+    max_macros: int = 120,
+    ctx: Context = None,
+) -> str:
+    """Inspect Vitis BSP xparameters.h macros relevant to addresses and interrupts."""
+    ws = Path(workspace)
+    if not ws.is_dir():
+        return f"[ERROR] workspace 不存在: {workspace}"
+    for value, name in ((app_name, "app_name"), (platform_name, "platform_name")):
+        if value:
+            try:
+                validate_identifier(value, name)
+            except ValueError as e:
+                return f"[ERROR] {e}"
+
+    search_roots = []
+    if platform_name and (ws / platform_name).is_dir():
+        search_roots.append(ws / platform_name)
+    if app_name and (ws / app_name).is_dir():
+        search_roots.append(ws / app_name)
+    search_roots.append(ws)
+
+    xparams: list[Path] = []
+    seen: set[Path] = set()
+    for root in search_roots:
+        for path in root.rglob("xparameters.h"):
+            resolved = path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                xparams.append(path)
+
+    filter_terms = [
+        term.upper()
+        for term in re.split(r"[,;\s]+", macro_filter.strip())
+        if term.strip()
+    ]
+
+    lines = ["--- Vitis BSP inspection ---", f"workspace: {normalize_path(str(ws))}"]
+    if filter_terms:
+        lines.append(f"macro filter: {', '.join(filter_terms)}")
+    lines.append(f"xparameters.h files ({len(xparams)}):")
+    if not xparams:
+        lines.append("  (none found)")
+        return "\n".join(lines)
+
+    macro_rows: dict[tuple[str, str], list[str]] = {}
+    for path in xparams:
+        lines.append(f"  - {normalize_path(str(path))}")
+        for line in _tail_text(path, max_lines=20000):
+            match = _BSP_MACRO_RE.match(line.strip())
+            if not match:
+                continue
+            macro, value = match.groups()
+            upper = macro.upper()
+            if any(
+                token in upper
+                for token in (
+                    "BASEADDR",
+                    "HIGHADDR",
+                    "DEVICE_ID",
+                    "INT_ID",
+                    "INTR",
+                    "IRQ",
+                    "SCUGIC",
+                    "FABRIC",
+                )
+            ) and (not filter_terms or any(term in upper for term in filter_terms)):
+                key = (macro, value.strip())
+                macro_rows.setdefault(key, []).append(normalize_path(str(path)))
+
+    lines.append("")
+    lines.append(f"relevant macros ({len(macro_rows)}):")
+    if not macro_rows:
+        lines.append("  (none found)")
+    else:
+        rows = sorted(macro_rows.items())
+        for (macro, value), paths in rows[: int(max_macros)]:
+            suffix = f" ({paths[0]})"
+            if len(paths) > 1:
+                suffix = f" ({paths[0]}; also in {len(paths) - 1} more)"
+            lines.append(f"  - {macro} = {value}{suffix}")
+        if len(macro_rows) > int(max_macros):
+            lines.append(f"  ... {len(macro_rows) - int(max_macros)} more")
+
+    lines.append("")
+    lines.append(
+        "Guidance: use the macros actually present here. Do not assume generated names "
+        "such as XPAR_FABRIC_<IP>_INTR exist; Zynq F2P interrupts often appear as "
+        "XPS_FPGA*_INT_ID, and GIC commonly uses XPAR_SCUGIC_0_DEVICE_ID."
+    )
     return "\n".join(lines)

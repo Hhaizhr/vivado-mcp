@@ -8,6 +8,23 @@ import pytest
 from vivado_mcp.vivado.session_manager import SessionManager, _validate_session_id
 
 
+def test_vivado_tcl_command_forces_64_bit_env_on_windows_batch(monkeypatch):
+    import sys
+
+    from vivado_mcp.vivado.session import _vivado_tcl_command
+
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    cmd, env = _vivado_tcl_command(r"D:\Xilinx\Vivado\2019.2\bin\vivado.bat")
+
+    assert cmd[:2] == ["cmd", "/c"]
+    assert cmd[2] == r"D:\Xilinx\Vivado\2019.2\bin\vivado.bat"
+    assert "-mode" in cmd
+    assert "tcl" in cmd
+    assert env["PROCESSOR_ARCHITECTURE"] == "AMD64"
+    assert env["PROCESSOR_ARCHITEW6432"] == "AMD64"
+
+
 class TestValidateSessionId:
     """session_id 格式验证测试。"""
 

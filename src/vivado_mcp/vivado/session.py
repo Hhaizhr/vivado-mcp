@@ -12,6 +12,8 @@ subprocess 实现（两种会话模式之一）。负责：
 import asyncio
 import collections
 import logging
+import os
+import sys
 import time
 
 from vivado_mcp.vivado.base_session import BaseSession, SessionState
@@ -27,6 +29,17 @@ logger = logging.getLogger(__name__)
 
 # stderr 缓冲区保留的最近行数（避免内存无限增长）
 _STDERR_RING_SIZE = 200
+
+
+def _vivado_tcl_command(vivado_path: str) -> tuple[list[str], dict[str, str]]:
+    """Return a Windows-stable Vivado Tcl launch command and environment."""
+    cmd = [vivado_path, "-mode", "tcl", "-nojournal", "-nolog"]
+    env = os.environ.copy()
+    if sys.platform == "win32" and vivado_path.lower().endswith((".bat", ".cmd")):
+        cmd = ["cmd", "/c", *cmd]
+        env["PROCESSOR_ARCHITECTURE"] = "AMD64"
+        env["PROCESSOR_ARCHITEW6432"] = "AMD64"
+    return cmd, env
 
 
 class SubprocessSession(BaseSession):
@@ -76,13 +89,13 @@ class SubprocessSession(BaseSession):
         logger.info("启动 Vivado 会话 '%s': %s", self.session_id, self.vivado_path)
 
         try:
+            cmd, env = _vivado_tcl_command(self.vivado_path)
             self._process = await asyncio.create_subprocess_exec(
-                self.vivado_path,
-                "-mode", "tcl",
-                "-nojournal", "-nolog",
+                *cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
         except (OSError, FileNotFoundError) as e:
             self._state = SessionState.ERROR

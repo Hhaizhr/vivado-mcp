@@ -26,7 +26,9 @@ async def start_session(
 
     Args:
         session_id: Session identifier.
-        mode: One of "gui", "tcl", or "attach".
+        mode: One of "gui", "tcl", or "attach". Prefer "gui" for a new
+            session on this Windows machine, and "attach" when Vivado is
+            already open. Use "tcl" only for explicit headless/debug needs.
         port: Preferred TCP port for GUI/attach mode.
         vivado_path: Optional explicit Vivado executable path.
         auth_token: Optional auth token for GUI/attach mode. If omitted, attach mode
