@@ -76,3 +76,30 @@ async def test_build_vitis_app_rejects_missing_workspace(tmp_path):
 
     assert "[ERROR]" in result
     assert "workspace 不存在" in result
+
+
+def test_run_xsct_wraps_bat_with_cmd(tmp_path):
+    from vivado_mcp.tools.vitis_tools import _run_xsct
+
+    completed = type(
+        "Completed",
+        (),
+        {"returncode": 0, "stdout": "ok", "stderr": ""},
+    )()
+
+    with (
+        patch(
+            "vivado_mcp.tools.vitis_tools.find_xsct",
+            return_value="D:/Xilinx/Vitis/2019.2/bin/xsct.bat",
+        ),
+        patch("vivado_mcp.tools.vitis_tools.subprocess.run", return_value=completed) as run,
+    ):
+        rc, output = _run_xsct("puts ok", timeout=1)
+
+    assert rc == 0
+    assert output == "ok"
+    assert run.call_args.args[0][0:3] == [
+        "cmd",
+        "/c",
+        "D:/Xilinx/Vitis/2019.2/bin/xsct.bat",
+    ]

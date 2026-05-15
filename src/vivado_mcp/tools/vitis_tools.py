@@ -25,8 +25,11 @@ def _run_xsct(script: str, xsct_path: str = "", timeout: int = 300) -> tuple[int
         tmp.write(script)
         script_path = tmp.name
     try:
+        cmd = [exe, script_path]
+        if exe.lower().endswith(".bat"):
+            cmd = ["cmd", "/c", exe, script_path]
         proc = subprocess.run(
-            [exe, script_path],
+            cmd,
             capture_output=True,
             text=True,
             timeout=timeout,
